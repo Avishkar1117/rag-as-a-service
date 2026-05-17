@@ -44,4 +44,4 @@ docker compose up --build
 
 ## Status
 
-In active development against a 14-day roadmap. Eval framework (RAGAS), structured logging, Sentry, cost tracking, and full portfolio polish land in Days 7–14.
+In active development.
