@@ -1,0 +1,42 @@
+# Local virtualenv (rebuilt inside container)
+.venv/
+venv/
+
+# Python bytecode + tool caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data (regenerable, mounted as volume at runtime)
+chroma_store/
+*.log
+
+# Secrets — passed via env_file at runtime, never baked into the image
+.env
+.env.*
+
+# Tests + dev files
+tests/
+.github/
+.vscode/
+.idea/
+
+# VCS
+.git/
+.gitignore
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Docker artifacts
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Build artifacts
+build/
+dist/

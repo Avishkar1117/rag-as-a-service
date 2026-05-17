@@ -1,0 +1,37 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+
+# Project data (regenerable)
+chroma_store/
+*.log
+*.err
+
+# Personal — not for public repo
+projects_roadmap_v3.pdf
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

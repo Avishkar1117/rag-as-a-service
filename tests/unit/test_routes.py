@@ -1,0 +1,94 @@
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from rag_service.cache.redis_cache import stats as cache_stats
+
+
+@pytest.fixture
+def client():
+    # Patch lifespan setup so tests don't touch real Gemini / GitHub Models.
+    with patch("rag_service.main.setup_llamaindex_settings"):
+        from rag_service.main import app
+
+        with TestClient(app) as c:
+            yield c
+
+
+def test_health_ok(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
+
+
+def test_root_redirects_to_docs(client):
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/docs"
+
+
+def test_ingest_rejects_non_pdf(client):
+    r = client.post(
+        "/ingest",
+        files={"file": ("test.txt", b"not a pdf", "text/plain")},
+    )
+    assert r.status_code == 400
+
+
+def test_ingest_returns_document_id_and_chunks(client):
+    with patch("rag_service.api.routes.ingest_document", return_value=7):
+        r = client.post(
+            "/ingest",
+            files={"file": ("doc.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["n_chunks"] == 7
+    assert len(data["document_id"]) == 12
+
+
+def test_query_returns_answer_and_citations(client):
+    mock_result = {
+        "answer": "Berlin is the capital",
+        "citations": ["docX"],
+        "latency_ms": 142,
+    }
+    with patch("rag_service.api.routes.query_pipeline", return_value=mock_result):
+        r = client.post(
+            "/query",
+            json={"question": "Capital of Germany?", "document_id": "docX", "top_k": 3},
+        )
+    assert r.status_code == 200
+    assert r.json() == mock_result
+
+
+def test_query_rejects_empty_question(client):
+    r = client.post(
+        "/query",
+        json={"question": "", "document_id": "docX", "top_k": 3},
+    )
+    assert r.status_code == 422
+
+
+def test_query_rejects_top_k_out_of_range(client):
+    r = client.post(
+        "/query",
+        json={"question": "q?", "document_id": "docX", "top_k": 999},
+    )
+    assert r.status_code == 422
+
+
+def test_metrics_returns_cache_stats(client):
+    cache_stats.reset()
+    cache_stats.hits = 7
+    cache_stats.misses = 3
+
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["cache_hits"] == 7
+    assert data["cache_misses"] == 3
+    assert data["cache_hit_rate"] == 0.7
+
+    cache_stats.reset()

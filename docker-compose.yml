@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    image: rag-service:latest
+    container_name: rag-service
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Persist Chroma vector store across container restarts
+      - ./chroma_store:/app/chroma_store
+    restart: unless-stopped
