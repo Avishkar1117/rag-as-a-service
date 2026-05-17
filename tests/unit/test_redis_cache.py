@@ -8,6 +8,7 @@ from pydantic import PrivateAttr
 from rag_service.cache.redis_cache import (
     CachingEmbedding,
     _embed_cache_key,
+    _redact_url,
     get_redis_client,
     stats,
 )
@@ -94,6 +95,17 @@ def test_redis_read_error_treated_as_miss():
 
 def test_cache_key_differs_by_model_name():
     assert _embed_cache_key("text", "model-a") != _embed_cache_key("text", "model-b")
+
+
+def test_redact_url_hides_password():
+    redacted = _redact_url("rediss://default:secret123@host.upstash.io:6379")
+    assert "secret123" not in redacted
+    assert "***" in redacted
+    assert "host.upstash.io" in redacted
+
+
+def test_redact_url_handles_no_credentials():
+    assert _redact_url("redis://localhost:6379") == "redis://localhost:6379"
 
 
 def test_get_redis_client_returns_none_on_connection_failure():

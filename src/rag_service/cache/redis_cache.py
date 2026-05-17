@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,10 @@ from pydantic import ConfigDict, Field
 from rag_service.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _redact_url(url: str) -> str:
+    return re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
 
 
 @dataclass
@@ -35,7 +40,7 @@ def get_redis_client() -> redis.Redis | None:
     try:
         client = redis.Redis.from_url(settings.redis_url, decode_responses=False)
         client.ping()
-        logger.info("redis connected at %s", settings.redis_url)
+        logger.info("redis connected at %s", _redact_url(settings.redis_url))
         return client
     except Exception as e:
         logger.warning("redis unavailable, embedding cache disabled: %s", e)
