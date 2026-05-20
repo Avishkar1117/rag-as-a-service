@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,6 +53,32 @@ def _embed_cache_key(text: str, model_name: str) -> str:
     return f"embed:{h}"
 
 
+_RATE_LIMIT_MARKERS = ("429", "ResourceExhausted", "RESOURCE_EXHAUSTED", "quota")
+_MAX_EMBED_RETRIES = 6
+
+
+def _is_rate_limit(err: Exception) -> bool:
+    return any(marker in str(err) for marker in _RATE_LIMIT_MARKERS)
+
+
+def _compute_with_retry(compute, text: str) -> list[float]:
+    """Run an embedding call, backing off on rate-limit (429) errors.
+
+    The Gemini embedding free tier rate-limits bursts, so a large ingest can
+    outrun the per-minute quota. Wait for the window to refresh and retry.
+    """
+    for attempt in range(_MAX_EMBED_RETRIES):
+        try:
+            return compute(text)
+        except Exception as e:
+            if not _is_rate_limit(e) or attempt == _MAX_EMBED_RETRIES - 1:
+                raise
+            wait = 30 * (attempt + 1)
+            logger.warning("embedding rate-limited, wait=%ds attempt=%d", wait, attempt + 1)
+            time.sleep(wait)
+    raise RuntimeError("unreachable")  # loop always returns or raises above
+
+
 class CachingEmbedding(BaseEmbedding):
     """Read-through Redis cache wrapping any BaseEmbedding."""
 
@@ -92,7 +119,7 @@ class CachingEmbedding(BaseEmbedding):
             stats.hits += 1
             return cached
         stats.misses += 1
-        embedding = compute(text)
+        embedding = _compute_with_retry(compute, text)
         self._write(text, embedding)
         return embedding
 

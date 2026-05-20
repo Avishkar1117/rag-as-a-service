@@ -7,6 +7,7 @@ from pydantic import PrivateAttr
 
 from rag_service.cache.redis_cache import (
     CachingEmbedding,
+    _compute_with_retry,
     _embed_cache_key,
     _redact_url,
     get_redis_client,
@@ -115,3 +116,29 @@ def test_get_redis_client_returns_none_on_connection_failure():
         mock_from_url.return_value = mock_client
 
         assert get_redis_client() is None
+
+
+def test_compute_with_retry_recovers_from_rate_limit():
+    calls = []
+
+    def flaky(text: str) -> list[float]:
+        calls.append(text)
+        if len(calls) < 3:
+            raise RuntimeError("429 ResourceExhausted: quota exceeded")
+        return [1.0, 2.0]
+
+    with patch("rag_service.cache.redis_cache.time.sleep") as mock_sleep:
+        result = _compute_with_retry(flaky, "hello")
+
+    assert result == [1.0, 2.0]
+    assert len(calls) == 3
+    assert mock_sleep.call_count == 2
+
+
+def test_compute_with_retry_reraises_non_rate_limit_error():
+    def boom(text: str) -> list[float]:
+        raise ValueError("malformed input")
+
+    with patch("rag_service.cache.redis_cache.time.sleep"):
+        with pytest.raises(ValueError, match="malformed input"):
+            _compute_with_retry(boom, "hello")

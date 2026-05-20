@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemma_model: str = "gemma-4-31b-it"
+    ragas_judge_model: str = "gemma-4-31b-it"
     github_token: str = ""
     github_model: str = "gpt-4o"
     github_api_base: str = "https://models.inference.ai.azure.com"
