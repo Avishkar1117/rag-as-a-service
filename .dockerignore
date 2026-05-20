@@ -20,6 +20,8 @@ chroma_store/
 
 # Tests + dev files
 tests/
+eval/
+scripts/
 .github/
 .vscode/
 .idea/
