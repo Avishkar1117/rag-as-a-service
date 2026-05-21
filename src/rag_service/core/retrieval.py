@@ -1,5 +1,5 @@
 import chromadb
-from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 

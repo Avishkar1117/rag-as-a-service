@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from rag_service.core.ingestion import ingest_document, pdf_content_id, run_ocr
 
 FAKE_PDF = b"%PDF-1.4 fake"
@@ -72,7 +70,8 @@ def test_ingest_document_uses_correct_collection_name():
 
 
 def test_ingest_document_handles_missing_collection_on_first_ingest():
-    # First ingest of a doc: delete_collection raises (collection doesn't exist) — should be swallowed.
+    # First ingest of a doc: delete_collection raises (collection doesn't exist)
+    # — the error should be swallowed.
     with patch("rag_service.core.ingestion.run_ocr", return_value="text"), \
          patch("rag_service.core.ingestion.chromadb.PersistentClient") as mock_chroma, \
          patch("rag_service.core.ingestion.ChromaVectorStore"), \
