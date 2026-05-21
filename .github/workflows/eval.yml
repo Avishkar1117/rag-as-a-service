@@ -15,7 +15,11 @@ jobs:
   ragas-regression:
     runs-on: ubuntu-latest
     steps:
+      # lfs: true pulls the eval corpus PDFs — they are stored via Git LFS,
+      # so a default checkout would yield pointer files and the eval would fail.
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
