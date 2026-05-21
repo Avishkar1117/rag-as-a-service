@@ -11,6 +11,7 @@ from rag_service.api.schemas import (
 from rag_service.cache.redis_cache import stats as cache_stats
 from rag_service.core.ingestion import ingest_document, pdf_content_id
 from rag_service.core.pipeline import query_pipeline
+from rag_service.observability.cost_tracker import tracker as cost_tracker
 
 router = APIRouter()
 
@@ -31,6 +32,7 @@ async def metrics() -> MetricsResponse:
         cache_hits=cache_stats.hits,
         cache_misses=cache_stats.misses,
         cache_hit_rate=cache_stats.hit_rate(),
+        **cost_tracker.snapshot(),
     )
 
 

@@ -94,7 +94,7 @@ def answer_question(question: str, top_k: int) -> tuple[str, list[str]]:
         try:
             nodes = retrieve(CORPUS_DOC_ID, question, top_k)
             contexts = [n.node.get_content() for n in nodes]
-            answer, _ = generate(question, nodes)
+            answer = generate(question, nodes).answer
             return answer, contexts
         except Exception as err:
             last_err = err

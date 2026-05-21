@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from llama_index.core.schema import NodeWithScore, TextNode
 
-from rag_service.core.generation import generate
+from rag_service.core.generation import GenerationResult, generate
 
 
 def _nodes(texts: list[str], doc_id: str = "doc123") -> list[NodeWithScore]:
@@ -10,10 +10,17 @@ def _nodes(texts: list[str], doc_id: str = "doc123") -> list[NodeWithScore]:
             for t in texts]
 
 
-def _mock_client(response_text: str = "answer", capture: list[str] | None = None) -> MagicMock:
+def _mock_client(
+    response_text: str = "answer",
+    capture: list[str] | None = None,
+    prompt_tokens: int = 120,
+    output_tokens: int = 8,
+) -> MagicMock:
     mock_client = MagicMock()
     mock_resp = MagicMock()
     mock_resp.text = response_text
+    mock_resp.usage_metadata.prompt_token_count = prompt_tokens
+    mock_resp.usage_metadata.candidates_token_count = output_tokens
 
     def _generate(model: str, contents: str) -> MagicMock:
         if capture is not None:
@@ -26,10 +33,21 @@ def _mock_client(response_text: str = "answer", capture: list[str] | None = None
 
 def test_returns_answer_and_citations():
     with patch("rag_service.core.generation.genai.Client", return_value=_mock_client("  Paris  ")):
-        answer, citations = generate("Capital of France?", _nodes(["Paris is the capital."]))
+        result = generate("Capital of France?", _nodes(["Paris is the capital."]))
 
-    assert answer == "Paris"
-    assert citations == ["doc123"]
+    assert isinstance(result, GenerationResult)
+    assert result.answer == "Paris"
+    assert result.citations == ["doc123"]
+
+
+def test_token_usage_captured():
+    with patch("rag_service.core.generation.genai.Client",
+               return_value=_mock_client("answer", prompt_tokens=512, output_tokens=42)):
+        result = generate("q?", _nodes(["context"]))
+
+    assert result.prompt_tokens == 512
+    assert result.output_tokens == 42
+    assert result.model  # the configured generation model name
 
 
 def test_context_injected_into_prompt():
@@ -49,6 +67,6 @@ def test_multiple_nodes_all_cited():
     ]
 
     with patch("rag_service.core.generation.genai.Client", return_value=_mock_client("combined")):
-        _, citations = generate("q?", nodes)
+        result = generate("q?", nodes)
 
-    assert citations == ["d1", "d2"]
+    assert result.citations == ["d1", "d2"]

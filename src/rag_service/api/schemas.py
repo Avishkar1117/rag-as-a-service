@@ -27,9 +27,15 @@ class QueryResponse(BaseModel):
     answer: str
     citations: list[str]
     latency_ms: int
+    cost_usd: float
 
 
 class MetricsResponse(BaseModel):
     cache_hits: int
     cache_misses: int
     cache_hit_rate: float
+    n_queries: int
+    total_cost_usd_today: float
+    mean_cost_usd_per_query: float
+    p50_latency_ms: float
+    p95_latency_ms: float
