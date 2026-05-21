@@ -13,6 +13,14 @@ short_description: Production RAG API with evaluation pipeline
 
 Production-grade RAG service: FastAPI + LlamaIndex + Chroma + Gemma 4 31B + Redis cache.
 
+## Live demo
+
+- **Space:** https://huggingface.co/spaces/Avishkar1117/rag-service
+- **Interactive API docs:** https://avishkar1117-rag-service.hf.space/docs
+
+Hosted on a Hugging Face free-tier Space (Docker SDK). The Space sleeps after
+inactivity, so the first request may take ~30 s while the container wakes.
+
 ## Endpoints
 
 - `POST /ingest` — upload PDF, get back a `document_id`
