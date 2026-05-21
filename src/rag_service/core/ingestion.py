@@ -1,7 +1,6 @@
 import hashlib
 import io
 import logging
-import time
 
 import chromadb
 import fitz
@@ -12,6 +11,7 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from rag_service.config import settings
+from rag_service.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +43,18 @@ def _extract_text_directly(pdf_bytes: bytes) -> str | None:
 
 def _ocr_page(i: int, img_bytes: bytes, client: genai.Client) -> str:
     img = PIL.Image.open(io.BytesIO(img_bytes))
-    for attempt in range(5):
-        try:
-            response = client.models.generate_content(
-                model=_OCR_MODEL,
-                # genai accepts a PIL image at runtime; its stubs don't model that.
-                contents=[_OCR_PROMPT, img],  # type: ignore[arg-type]
-            )
-            return response.text or ""
-        except Exception as e:
-            if "429" in str(e) or "ResourceExhausted" in str(e):
-                wait = 30 * (attempt + 1)
-                logger.warning("rate_limit page=%d wait=%ds attempt=%d", i, wait, attempt)
-                time.sleep(wait)
-            else:
-                raise
-    raise RuntimeError(f"Page {i + 1} failed after 5 retries")
+
+    def _call() -> str:
+        response = client.models.generate_content(
+            model=_OCR_MODEL,
+            # genai accepts a PIL image at runtime; its stubs don't model that.
+            contents=[_OCR_PROMPT, img],  # type: ignore[arg-type]
+        )
+        return response.text or ""
+
+    # Retries 429 (rate limit) and transient 500/503 — one flaky page would
+    # otherwise abort the whole document mid-ingest.
+    return with_retry(_call, what=f"OCR page {i + 1}")
 
 
 def run_ocr(pdf_bytes: bytes) -> str:

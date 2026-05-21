@@ -84,3 +84,28 @@ def test_ingest_document_handles_missing_collection_on_first_ingest():
 
     assert n == 1
     mock_chroma.return_value.create_collection.assert_called_once_with("doc_newdoc")
+
+
+def test_ocr_page_retries_on_transient_error():
+    # A transient 503 mid-OCR must not abort the page — with_retry recovers it.
+    from rag_service.core.ingestion import _ocr_page
+
+    client = MagicMock()
+    attempts = []
+
+    def flaky(*args, **kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise RuntimeError("503 UNAVAILABLE")
+        response = MagicMock()
+        response.text = "page text"
+        return response
+
+    client.models.generate_content.side_effect = flaky
+
+    with patch("rag_service.retry.time.sleep"), \
+         patch("rag_service.core.ingestion.PIL.Image.open"):
+        result = _ocr_page(0, b"imgbytes", client)
+
+    assert result == "page text"
+    assert len(attempts) == 3

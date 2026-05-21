@@ -2,7 +2,6 @@ import hashlib
 import json
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +10,7 @@ from llama_index.core.embeddings import BaseEmbedding
 from pydantic import ConfigDict, Field
 
 from rag_service.config import settings
+from rag_service.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -53,34 +53,15 @@ def _embed_cache_key(text: str, model_name: str) -> str:
     return f"embed:{h}"
 
 
-_RATE_LIMIT_MARKERS = ("429", "ResourceExhausted", "RESOURCE_EXHAUSTED", "quota")
-_MAX_EMBED_RETRIES = 6
-
-
-def _is_rate_limit(err: Exception) -> bool:
-    return any(marker in str(err) for marker in _RATE_LIMIT_MARKERS)
-
-
-def _compute_with_retry(compute, text: str) -> list[float]:
-    """Run an embedding call, backing off on rate-limit (429) errors.
-
-    The Gemini embedding free tier rate-limits bursts, so a large ingest can
-    outrun the per-minute quota. Wait for the window to refresh and retry.
-    """
-    for attempt in range(_MAX_EMBED_RETRIES):
-        try:
-            return compute(text)
-        except Exception as e:
-            if not _is_rate_limit(e) or attempt == _MAX_EMBED_RETRIES - 1:
-                raise
-            wait = 30 * (attempt + 1)
-            logger.warning("embedding rate-limited, wait=%ds attempt=%d", wait, attempt + 1)
-            time.sleep(wait)
-    raise RuntimeError("unreachable")  # loop always returns or raises above
-
-
 class CachingEmbedding(BaseEmbedding):
-    """Read-through Redis cache wrapping any BaseEmbedding."""
+    """Read-through Redis cache wrapping any BaseEmbedding.
+
+    Every cache miss runs through ``with_retry`` — the underlying Gemini API
+    intermittently rate-limits (429) or returns transient 5xx errors, and one
+    un-retried failure would sink a whole multi-page ingest. Text embeddings
+    also take a batch path: misses across a batch are embedded in a single
+    grouped call instead of one request per chunk.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -119,7 +100,7 @@ class CachingEmbedding(BaseEmbedding):
             stats.hits += 1
             return cached
         stats.misses += 1
-        embedding = _compute_with_retry(compute, text)
+        embedding = with_retry(lambda: compute(text), what="embedding")
         self._write(text, embedding)
         return embedding
 
@@ -129,8 +110,40 @@ class CachingEmbedding(BaseEmbedding):
     def _get_text_embedding(self, text: str) -> list[float]:
         return self._cached(text, self.underlying._get_text_embedding)
 
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Batch path: serve cache hits, embed all misses in one grouped call.
+
+        LlamaIndex calls this once per ``embed_batch_size`` group while
+        indexing, so batching the misses turns N per-chunk requests into one —
+        fewer round-trips and fewer chances to hit a transient error.
+        """
+        cached = [self._read(text) for text in texts]
+        miss_idx = [i for i, hit in enumerate(cached) if hit is None]
+        stats.hits += len(texts) - len(miss_idx)
+        stats.misses += len(miss_idx)
+        if not miss_idx:
+            return [hit for hit in cached if hit is not None]
+
+        miss_texts = [texts[i] for i in miss_idx]
+        computed = with_retry(
+            lambda: self.underlying._get_text_embeddings(miss_texts),
+            what=f"embedding batch x{len(miss_texts)}",
+        )
+        filled = dict(zip(miss_idx, computed))
+
+        result: list[list[float]] = []
+        for i, hit in enumerate(cached):
+            embedding = hit if hit is not None else filled[i]
+            if hit is None:
+                self._write(texts[i], embedding)
+            result.append(embedding)
+        return result
+
     async def _aget_query_embedding(self, query: str) -> list[float]:
         return self._get_query_embedding(query)
 
     async def _aget_text_embedding(self, text: str) -> list[float]:
         return self._get_text_embedding(text)
+
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return self._get_text_embeddings(texts)

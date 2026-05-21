@@ -7,7 +7,6 @@ from pydantic import PrivateAttr
 
 from rag_service.cache.redis_cache import (
     CachingEmbedding,
-    _compute_with_retry,
     _embed_cache_key,
     _redact_url,
     get_redis_client,
@@ -118,27 +117,52 @@ def test_get_redis_client_returns_none_on_connection_failure():
         assert get_redis_client() is None
 
 
-def test_compute_with_retry_recovers_from_rate_limit():
-    calls = []
+def test_batch_embeddings_all_miss_calls_underlying_and_stores():
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = None
+    underlying = FakeEmbedding()
 
-    def flaky(text: str) -> list[float]:
-        calls.append(text)
-        if len(calls) < 3:
-            raise RuntimeError("429 ResourceExhausted: quota exceeded")
-        return [1.0, 2.0]
+    embed = CachingEmbedding(underlying=underlying, redis_client=fake_redis, cache_model_name="m1")
+    result = embed._get_text_embeddings(["a", "b", "c"])
 
-    with patch("rag_service.cache.redis_cache.time.sleep") as mock_sleep:
-        result = _compute_with_retry(flaky, "hello")
-
-    assert result == [1.0, 2.0]
-    assert len(calls) == 3
-    assert mock_sleep.call_count == 2
+    assert result == [[0.4, 0.5, 0.6]] * 3
+    assert underlying._text_calls == ["a", "b", "c"]
+    assert stats.misses == 3
+    assert stats.hits == 0
+    assert fake_redis.set.call_count == 3
 
 
-def test_compute_with_retry_reraises_non_rate_limit_error():
-    def boom(text: str) -> list[float]:
-        raise ValueError("malformed input")
+def test_batch_embeddings_partial_hit_only_embeds_misses():
+    # "b" is already cached; "a" and "c" are not.
+    cached_b = json.dumps([7.0, 7.0, 7.0]).encode("utf-8")
 
-    with patch("rag_service.cache.redis_cache.time.sleep"):
-        with pytest.raises(ValueError, match="malformed input"):
-            _compute_with_retry(boom, "hello")
+    def fake_get(key: str):
+        return cached_b if key == _embed_cache_key("b", "m1") else None
+
+    fake_redis = MagicMock()
+    fake_redis.get.side_effect = fake_get
+    underlying = FakeEmbedding()
+
+    embed = CachingEmbedding(underlying=underlying, redis_client=fake_redis, cache_model_name="m1")
+    result = embed._get_text_embeddings(["a", "b", "c"])
+
+    # Order preserved; the cached vector is spliced back into the right slot.
+    assert result == [[0.4, 0.5, 0.6], [7.0, 7.0, 7.0], [0.4, 0.5, 0.6]]
+    assert underlying._text_calls == ["a", "c"]  # only the misses are embedded
+    assert stats.hits == 1
+    assert stats.misses == 2
+
+
+def test_batch_embeddings_all_hit_skips_underlying():
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = json.dumps([1.0, 1.0, 1.0]).encode("utf-8")
+    underlying = FakeEmbedding()
+
+    embed = CachingEmbedding(underlying=underlying, redis_client=fake_redis, cache_model_name="m1")
+    result = embed._get_text_embeddings(["a", "b"])
+
+    assert result == [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]
+    assert underlying._text_calls == []
+    assert stats.hits == 2
+    assert stats.misses == 0
+    fake_redis.set.assert_not_called()
