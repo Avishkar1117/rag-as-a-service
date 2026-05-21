@@ -16,7 +16,6 @@ from rag_service.retry import with_retry
 logger = logging.getLogger(__name__)
 
 _OCR_PROMPT = "Extract all text and tables from this page as clean Markdown. Nothing else."
-_OCR_MODEL = "gemini-2.5-flash-lite"
 
 
 def _pdf_to_images(pdf_bytes: bytes) -> list[tuple[int, bytes]]:
@@ -46,7 +45,7 @@ def _ocr_page(i: int, img_bytes: bytes, client: genai.Client) -> str:
 
     def _call() -> str:
         response = client.models.generate_content(
-            model=_OCR_MODEL,
+            model=settings.ocr_model,
             # genai accepts a PIL image at runtime; its stubs don't model that.
             contents=[_OCR_PROMPT, img],  # type: ignore[arg-type]
         )
