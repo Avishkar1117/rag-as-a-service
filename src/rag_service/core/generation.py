@@ -47,7 +47,7 @@ def generate(question: str, nodes: list[NodeWithScore]) -> GenerationResult:
     output_tokens = getattr(usage, "candidates_token_count", 0) or 0
 
     return GenerationResult(
-        answer=response.text.strip(),
+        answer=(response.text or "").strip(),
         citations=citations,
         model=settings.gemma_model,
         prompt_tokens=prompt_tokens,

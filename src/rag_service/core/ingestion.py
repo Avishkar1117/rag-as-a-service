@@ -47,9 +47,10 @@ def _ocr_page(i: int, img_bytes: bytes, client: genai.Client) -> str:
         try:
             response = client.models.generate_content(
                 model=_OCR_MODEL,
-                contents=[_OCR_PROMPT, img],
+                # genai accepts a PIL image at runtime; its stubs don't model that.
+                contents=[_OCR_PROMPT, img],  # type: ignore[arg-type]
             )
-            return response.text
+            return response.text or ""
         except Exception as e:
             if "429" in str(e) or "ResourceExhausted" in str(e):
                 wait = 30 * (attempt + 1)

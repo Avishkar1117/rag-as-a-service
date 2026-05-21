@@ -29,4 +29,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
 
-settings = Settings()
+# Required fields (gemini_api_key) are populated from the environment / .env;
+# mypy can't see that, hence the ignore.
+settings = Settings()  # type: ignore[call-arg]
