@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from rag_service.config import settings
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -12,12 +14,13 @@ class IngestResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     # Reject unknown fields so typos like `k` / `n_chunks` fail loudly instead of silently
-    # defaulting `top_k=3`.
+    # falling back to the default `top_k`.
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(..., min_length=1)
     document_id: str = Field(..., min_length=1)
-    top_k: int = Field(default=3, ge=1, le=20)
+    # Default tracks settings.top_k so the .env TOP_K knob is the single source of truth.
+    top_k: int = Field(default=settings.top_k, ge=1, le=20)
 
 
 class QueryResponse(BaseModel):

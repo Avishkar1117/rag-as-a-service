@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     chunk_size: int = 1024
     chunk_overlap: int = 50
-    top_k: int = 3
+    top_k: int = 8
 
     chroma_persist_dir: str = "./chroma_store"
 
