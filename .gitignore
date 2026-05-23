@@ -24,9 +24,6 @@ chroma_store/
 *.log
 *.err
 
-# Personal — not for public repo
-projects_roadmap_v3.pdf
-CLAUDE.md
 
 # IDE
 .vscode/
