@@ -23,10 +23,11 @@ def test_health_ok(client):
     assert r.json() == {"status": "ok"}
 
 
-def test_root_redirects_to_docs(client):
-    r = client.get("/", follow_redirects=False)
-    assert r.status_code in (302, 307)
-    assert r.headers["location"] == "/docs"
+def test_root_serves_demo_page(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "RAG-as-a-Service" in r.text
 
 
 def test_ingest_rejects_non_pdf(client):

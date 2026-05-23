@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAG-as-a-Service</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128196;</text></svg>" />
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #14152b;
+    --muted: #6b7280;
+    --line: #e4e6eb;
+    --accent: #4f46e5;
+    --ok: #047857;
+    --err: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 64px; }
+  header h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  header p { margin: 0; color: var(--muted); }
+  .links { margin-top: 10px; font-size: .9rem; }
+  .links a { color: var(--accent); text-decoration: none; margin-right: 16px; }
+  .links a:hover { text-decoration: underline; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  .card h2 { margin: 0 0 14px; font-size: 1rem; }
+  .step { color: var(--accent); font-weight: 700; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 6px; }
+  input[type=file], textarea, input[type=number] {
+    width: 100%;
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 12px; align-items: flex-end; margin-top: 12px; }
+  .row .grow { flex: 1; }
+  .topk { width: 96px; }
+  button {
+    font: inherit;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { margin-top: 10px; font-size: .9rem; min-height: 1.2em; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .answer { white-space: pre-wrap; margin: 4px 0 0; }
+  .meta { margin-top: 12px; font-size: .85rem; color: var(--muted); }
+  details { margin-top: 12px; }
+  details summary { cursor: pointer; font-size: .85rem; color: var(--accent); }
+  .ctx {
+    font-size: .82rem;
+    color: var(--muted);
+    border-left: 2px solid var(--line);
+    padding-left: 10px;
+    margin-top: 8px;
+    white-space: pre-wrap;
+  }
+  .metrics { display: flex; flex-wrap: wrap; gap: 22px; }
+  .metric b { display: block; font-size: 1.15rem; color: var(--ink); }
+  .metric span { font-size: .82rem; color: var(--muted); }
+  .hint { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>RAG-as-a-Service</h1>
+    <p>Upload a PDF, then ask questions answered from its contents &mdash; with citations, latency, and cost.</p>
+    <div class="links">
+      <a href="/docs">API docs</a>
+      <a href="/metrics">/metrics</a>
+      <a href="https://github.com/Avishkar1117/rag-as-a-service" target="_blank" rel="noopener">Source</a>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2><span class="step">1 &middot;</span> Ingest a PDF</h2>
+    <label for="file">PDF file</label>
+    <input type="file" id="file" accept="application/pdf" />
+    <div class="row">
+      <div class="grow"></div>
+      <button id="ingestBtn">Ingest</button>
+    </div>
+    <div class="status" id="ingestStatus"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2 &middot;</span> Ask a question</h2>
+    <div id="askDisabled" class="hint">Ingest a PDF above to enable querying.</div>
+    <div id="askForm" hidden>
+      <label for="question">Question</label>
+      <textarea id="question" placeholder="What is multi-head attention?"></textarea>
+      <div class="row">
+        <div>
+          <label for="topk">top_k</label>
+          <input type="number" id="topk" class="topk" value="8" min="1" max="20" />
+        </div>
+        <div class="grow"></div>
+        <button id="askBtn">Ask</button>
+      </div>
+      <div class="status" id="askStatus"></div>
+      <div id="result" hidden>
+        <p class="answer" id="answer"></p>
+        <details id="citationsBox">
+          <summary>Retrieved context</summary>
+          <div id="citations"></div>
+        </details>
+        <div class="meta" id="meta"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Live metrics <span class="hint">&mdash; GET /metrics</span></h2>
+    <div class="metrics">
+      <div class="metric"><b id="mQueries">&ndash;</b><span>queries</span></div>
+      <div class="metric"><b id="mHit">&ndash;</b><span>cache hit rate</span></div>
+      <div class="metric"><b id="mP50">&ndash;</b><span>p50 latency</span></div>
+      <div class="metric"><b id="mP95">&ndash;</b><span>p95 latency</span></div>
+      <div class="metric"><b id="mCost">&ndash;</b><span>cost today</span></div>
+    </div>
+  </section>
+</div>
+
+<script>
+  let docId = null;
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(el, msg, kind) {
+    el.textContent = msg;
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  }
+
+  async function ingest() {
+    const file = $("file").files[0];
+    if (!file) { setStatus($("ingestStatus"), "Choose a PDF first.", "err"); return; }
+    const btn = $("ingestBtn");
+    btn.disabled = true;
+    setStatus($("ingestStatus"), "Ingesting — OCR, chunking, embedding…");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/ingest", { method: "POST", body: fd });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
+      docId = data.document_id;
+      setStatus(
+        $("ingestStatus"),
+        "Ingested — " + data.n_chunks + " chunks · document_id " + data.document_id,
+        "ok"
+      );
+      $("askDisabled").hidden = true;
+      $("askForm").hidden = false;
+    } catch (e) {
+      setStatus($("ingestStatus"), "Failed: " + e.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function ask() {
+    const q = $("question").value.trim();
+    if (!q) { setStatus($("askStatus"), "Type a question first.", "err"); return; }
+    const btn = $("askBtn");
+    btn.disabled = true;
+    $("result").hidden = true;
+    setStatus($("askStatus"), "Thinking — retrieving context and generating…");
+    try {
+      const r = await fetch("/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: q,
+          document_id: docId,
+          top_k: Number($("topk").value) || 8,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        const detail = data.detail ? JSON.stringify(data.detail) : "HTTP " + r.status;
+        throw new Error(detail);
+      }
+      $("answer").textContent = data.answer;
+      const cites = data.citations || [];
+      $("citations").innerHTML = cites.length
+        ? cites.map((c) => '<div class="ctx">' + escapeHtml(c) + "</div>").join("")
+        : '<div class="ctx">(none)</div>';
+      $("citationsBox").open = false;
+      $("meta").textContent =
+        data.latency_ms + " ms · $" + data.cost_usd.toFixed(6) +
+        " · " + cites.length + " context chunk(s)";
+      $("result").hidden = false;
+      setStatus($("askStatus"), "");
+      loadMetrics();
+    } catch (e) {
+      setStatus($("askStatus"), "Failed: " + e.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function loadMetrics() {
+    try {
+      const r = await fetch("/metrics");
+      const m = await r.json();
+      $("mQueries").textContent = m.n_queries;
+      $("mHit").textContent = (m.cache_hit_rate * 100).toFixed(0) + "%";
+      $("mP50").textContent = m.p50_latency_ms.toFixed(0) + " ms";
+      $("mP95").textContent = m.p95_latency_ms.toFixed(0) + " ms";
+      $("mCost").textContent = "$" + m.total_cost_usd_today.toFixed(4);
+    } catch (e) {
+      /* metrics are best-effort; ignore transient failures */
+    }
+  }
+
+  $("ingestBtn").addEventListener("click", ingest);
+  $("askBtn").addEventListener("click", ask);
+  loadMetrics();
+</script>
+</body>
+</html>

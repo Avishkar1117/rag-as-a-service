@@ -1,5 +1,7 @@
+from pathlib import Path
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse
 
 from rag_service.api.schemas import (
     HealthResponse,
@@ -15,10 +17,15 @@ from rag_service.observability.cost_tracker import tracker as cost_tracker
 
 router = APIRouter()
 
+# A minimal demo page is served at "/"; the full interactive API stays at "/docs".
+# Read once at import — the file ships in the image (the Dockerfile copies src/).
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+_INDEX_HTML = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-@router.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
-    return RedirectResponse(url="/docs")
+
+@router.get("/", include_in_schema=False, response_class=HTMLResponse)
+def root() -> HTMLResponse:
+    return HTMLResponse(_INDEX_HTML)
 
 
 @router.get("/health", response_model=HealthResponse)

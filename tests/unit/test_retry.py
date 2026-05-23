@@ -2,7 +2,12 @@ from unittest.mock import patch
 
 import pytest
 
-from rag_service.retry import is_retryable, with_retry
+from rag_service.retry import (
+    _RATE_LIMIT_WINDOW_S,
+    _backoff_seconds,
+    is_retryable,
+    with_retry,
+)
 
 
 def test_is_retryable_detects_rate_limit():
@@ -83,3 +88,40 @@ def test_with_retry_gives_up_after_max_attempts():
             with_retry(always_unavailable, what="embedding", max_attempts=4)
 
     assert len(calls) == 4
+
+
+def test_rate_limit_backoff_waits_a_full_quota_window():
+    # A per-minute (TPM/RPM) quota only clears when its 60s window rolls over,
+    # so every rate-limit retry must wait at least one full window.
+    for attempt in range(5):
+        wait = _backoff_seconds(attempt, rate_limited=True)
+        assert wait >= _RATE_LIMIT_WINDOW_S
+
+
+def test_transient_backoff_is_exponential_and_capped():
+    # Transient 5xx: equal jitter — a guaranteed floor of half the ceiling, and
+    # never longer than the 60s cap.
+    prev_floor = 0.0
+    for attempt in range(8):
+        wait = _backoff_seconds(attempt, rate_limited=False)
+        assert 0.0 < wait <= 60.0
+        # Early attempts stay well short of a full rate-limit window.
+        if attempt <= 2:
+            assert wait < _RATE_LIMIT_WINDOW_S
+        prev_floor = max(prev_floor, wait)
+    assert prev_floor > 0.0
+
+
+def test_rate_limit_error_uses_rate_limit_backoff():
+    waits: list[float] = []
+
+    def flaky() -> str:
+        if len(waits) < 1:
+            raise RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")
+        return "ok"
+
+    with patch("rag_service.retry.time.sleep", side_effect=waits.append):
+        assert with_retry(flaky, what="embedding") == "ok"
+
+    assert len(waits) == 1
+    assert waits[0] >= _RATE_LIMIT_WINDOW_S  # waited out the quota window

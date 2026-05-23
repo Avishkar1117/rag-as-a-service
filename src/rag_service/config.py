@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     gemma_model: str = "gemma-4-31b-it"
     ragas_judge_model: str = "gemma-4-31b-it"
     ocr_model: str = "gemini-3.1-flash-lite"
-    embedding_model: str = "models/gemini-embedding-2"
+    embedding_model: str = "models/gemini-embedding-001"
     github_token: str = ""
     github_model: str = "gpt-4o"
     github_api_base: str = "https://models.inference.ai.azure.com"

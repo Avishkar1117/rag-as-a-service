@@ -216,7 +216,7 @@ def build_report(
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "generation_model": settings.gemma_model,
             "judge_model": settings.ragas_judge_model,
-            "embed_model": "models/gemini-embedding-001",
+            "embed_model": settings.embedding_model,
             "ragas_version": ragas_eval.RAGAS_VERSION,
             "top_k": top_k,
             "chunk_size": settings.chunk_size,

@@ -36,7 +36,6 @@ RAGAS_VERSION: str = ragas.__version__
 
 # Gemini's OpenAI-compatible endpoint; lets llm_factory's OpenAI client reach Gemini.
 _GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-_EMBED_MODEL = "models/gemini-embedding-001"
 
 # The four metrics from the project brief (CLAUDE.md §6, Day 10-11), in report order:
 #   faithfulness        — does the answer follow from the retrieved context?
@@ -60,7 +59,9 @@ def _judge_llm():
 
 
 def _judge_embeddings() -> LlamaIndexEmbeddingsWrapper:
-    underlying = GeminiEmbedding(model_name=_EMBED_MODEL, api_key=settings.gemini_api_key)
+    underlying = GeminiEmbedding(
+        model_name=settings.embedding_model, api_key=settings.gemini_api_key
+    )
     return LlamaIndexEmbeddingsWrapper(underlying)
 
 
