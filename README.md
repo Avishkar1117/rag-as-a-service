@@ -13,7 +13,7 @@ short_description: Production RAG API with evaluation pipeline
 
 A production-grade Retrieval-Augmented Generation service: upload a PDF, ask
 questions, get cited answers. The differentiator versus a notebook prototype is
-the rest of the stack — a typed HTTP API, a Redis embedding cache, structured
+the rest of the stack, a typed HTTP API, a Redis embedding cache, structured
 logging, Sentry, per-query cost tracking, and a RAGAS evaluation harness wired
 into CI as a regression guard.
 
@@ -99,7 +99,7 @@ Per-question scores: `eval/results/ragas_20260521_090522.json` (and matching
 A 10-question regression guard (`tests/eval/test_regression.py`) re-runs the
 RAGAS harness on every pull request and fails if faithfulness drops below
 0.85. The workflow is in `.github/workflows/eval.yml`. This is the angle that
-makes the service genuinely shippable — prompt or model changes that quietly
+makes the service genuinely shippable,any prompt or model changes that quietly
 regress quality get caught before they merge.
 
 ## API
@@ -108,7 +108,7 @@ regress quality get caught before they merge.
 |---|---|
 | `POST /ingest` | Multipart PDF upload. Returns `{document_id, n_chunks}`. |
 | `POST /query` | `{question, top_k?, document_ids?}` → `{answer, citations, latency_ms, cost_usd}`. |
-| `GET /health` | Liveness — returns `{status: "ok"}`. |
+| `GET /health` | Liveness - returns `{status: "ok"}`. |
 | `GET /metrics` | Rolling cost (today, mean/query), p50/p95 latency, cache hit rate, totals. |
 | `GET /docs` | Interactive Swagger UI. |
 | `GET /` | Single-page browser demo (upload, ask, see context + cost). |
@@ -136,13 +136,13 @@ curl -X POST https://avishkar1117-rag-service.hf.space/query \
 | LLM | Gemma 4 31B (Gemini API, OpenAI-compatible endpoint) |
 | Embeddings | `models/gemini-embedding-001` |
 | OCR | PyMuPDF text extraction → Gemini Vision fallback for scans |
-| Cache | Upstash Redis — embedding cache (sha256-keyed), optional answer cache |
+| Cache | Upstash Redis - embedding cache (sha256-keyed), optional answer cache |
 | Observability | Structured JSON logs, Sentry, in-process CostTracker |
 | Eval | RAGAS 0.3.2 |
 | Container | Docker (multi-stage), docker-compose |
 | Deploy | Hugging Face Spaces (Docker SDK) |
 | Tooling | `uv`, ruff, mypy, pytest |
-| CI | GitHub Actions — lint + tests + docker build, plus RAGAS regression on PRs |
+| CI | GitHub Actions - lint + tests + docker build, plus RAGAS regression on PRs |
 
 ## Run locally
 
@@ -164,12 +164,12 @@ uv run uvicorn rag_service.main:app --reload
 - **Gemma 4 31B over GPT-4o-class models.** The eval and the deployed service
   use the same model so RAGAS results reflect production. Gemma's free-tier
   Gemini quota is generous enough for both. The OpenAI-compatible endpoint
-  means RAGAS's built-in `llm_factory` works unmodified — no extra adapter.
+  means RAGAS's built-in `llm_factory` works unmodified, so no extra adapter.
 - **Single-collection Chroma store.** All ingested PDFs share one collection
   with a `document_id` metadata filter at query time. Simpler than per-doc
   collections, and the `top_k=8` tuning shows it retrieves cleanly.
 - **Embedding cache, not answer cache (by default).** Answers depend on
-  retrieved chunks which change as documents are added — caching them
+  retrieved chunks which change as documents are added, caching them
   invites stale results. Embeddings are content-addressed by
   `sha256(text + model_name)` and safe to cache aggressively. Answer cache
   is wired but disabled by default (TTL configurable).
@@ -177,7 +177,7 @@ uv run uvicorn rag_service.main:app --reload
   SDK supports the existing image with no rewrite. Cold-start latency
   (~30 s) is the trade-off.
 - **RAGAS judge = generation model.** Cheaper and avoids dragging in a
-  second API. A separate judge would reduce self-bias on faithfulness — a
+  second API. A separate judge would reduce self-bias on faithfulness, a
   fair next step if budget allowed.
 
 ## Repository layout
@@ -203,13 +203,3 @@ tests/
   eval.yml      # RAGAS regression on PRs
 ```
 
-## What I'd do next
-
-1. **Tighten the refusal prompt** to recover adversarial refusal rate at
-   `top_k=8` without giving back the multi-hop recall gains.
-2. **Add a reranker** (Cohere or BGE) between retrieval and generation —
-   the current `top_k=8` is a blunt instrument; reranking 20→8 would lift
-   precision further.
-3. **Stream responses** so first-token latency feels closer to ChatGPT.
-4. **A second judge model** for RAGAS to reduce self-bias on faithfulness.
-5. **Per-tenant API keys + rate limits** before any real users hit it.
