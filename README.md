@@ -203,3 +203,6 @@ tests/
   eval.yml      # RAGAS regression on PRs
 ```
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
