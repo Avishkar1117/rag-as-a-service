@@ -30,9 +30,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --python 3.10
 
-      # Needs GEMINI_API_KEY in repo secrets. Without it the test skips,
-      # so the job stays green until the secret is configured.
+      # Needs GEMINI_API_KEY (generation + embedding) and OPENROUTER_API_KEY
+      # (RAGAS judge) in repo secrets. Without them the test skips, so the
+      # job stays green until both secrets are configured.
       - name: RAGAS regression eval
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: uv run pytest -m eval -v
