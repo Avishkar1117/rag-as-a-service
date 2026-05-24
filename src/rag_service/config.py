@@ -10,12 +10,17 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemma_model: str = "gemma-4-31b-it"
-    ragas_judge_model: str = "gemma-4-31b-it"
+    # RAGAS judge runs on OpenRouter to break self-bias on faithfulness:
+    # the generator (Gemma) and the judge (Nemotron) come from different
+    # model families and providers.
+    ragas_judge_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
     ocr_model: str = "gemini-3.1-flash-lite"
     embedding_model: str = "models/gemini-embedding-001"
     github_token: str = ""
     github_model: str = "gpt-4o"
     github_api_base: str = "https://models.inference.ai.azure.com"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     chunk_size: int = 1024
     chunk_overlap: int = 50
