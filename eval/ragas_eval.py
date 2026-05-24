@@ -4,10 +4,13 @@ RAGAS changes its API often (see CLAUDE.md §9). Keeping every RAGAS import and
 type confined here means a future version bump, or a swap to another eval
 library, touches exactly one file.
 
-The judge LLM runs through Gemini's OpenAI-compatible endpoint, so RAGAS's
-built-in `llm_factory` (which speaks the OpenAI protocol) works with the
-already-installed `openai` SDK — no extra dependency. Embeddings reuse the same
-GeminiEmbedding the service uses in production.
+The judge LLM runs on OpenRouter (default: NVIDIA Nemotron) so the judge and
+the generator come from different model families — this reduces the self-bias
+that arises when one model evaluates its own output for faithfulness.
+OpenRouter speaks the OpenAI protocol, so RAGAS's built-in `llm_factory` works
+with the already-installed `openai` SDK — no extra dependency. Embeddings
+still reuse the same GeminiEmbedding the service uses in production, so
+context-recall/precision scoring stays consistent with production retrieval.
 """
 
 from __future__ import annotations
@@ -34,8 +37,6 @@ os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
 RAGAS_VERSION: str = ragas.__version__
 
-# Gemini's OpenAI-compatible endpoint; lets llm_factory's OpenAI client reach Gemini.
-_GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # The four metrics from the project brief (CLAUDE.md §6, Day 10-11), in report order:
 #   faithfulness        — does the answer follow from the retrieved context?
@@ -53,9 +54,19 @@ METRIC_NAMES: list[str] = [m.name for m in _METRICS]
 
 def _judge_llm():
     # llm_factory builds an OpenAI client that authenticates via OPENAI_API_KEY.
-    # We point that client at Gemini, so the key it reads must be the Gemini key.
-    os.environ["OPENAI_API_KEY"] = settings.gemini_api_key
-    return llm_factory(model=settings.ragas_judge_model, base_url=_GEMINI_OPENAI_BASE_URL)
+    # We point that client at OpenRouter, so the key it reads must be the
+    # OpenRouter key. Fail loudly here rather than letting the OpenAI client
+    # emit a confusing auth error mid-eval.
+    if not settings.openrouter_api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set — required to run the RAGAS judge. "
+            "Add it to .env or export it before running eval."
+        )
+    os.environ["OPENAI_API_KEY"] = settings.openrouter_api_key
+    return llm_factory(
+        model=settings.ragas_judge_model,
+        base_url=settings.openrouter_base_url,
+    )
 
 
 def _judge_embeddings() -> LlamaIndexEmbeddingsWrapper:
