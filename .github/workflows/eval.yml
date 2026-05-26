@@ -30,11 +30,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --python 3.10
 
-      # Needs GEMINI_API_KEY (generation + embedding) and OPENROUTER_API_KEY
-      # (RAGAS judge) in repo secrets. Without them the test skips, so the
-      # job stays green until both secrets are configured.
+      # Needs GEMINI_API_KEY (generation + embedding) and the API key for
+      # whichever JUDGE_PROVIDER is active. All judge keys are forwarded
+      # unconditionally so a future provider swap is just a JUDGE_PROVIDER
+      # change in the workflow env / repo variables — no .yml edit needed.
+      # Missing keys cause the regression test to skip rather than fail.
       - name: RAGAS regression eval
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: uv run pytest -m eval -v

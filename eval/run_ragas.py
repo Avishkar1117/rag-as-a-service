@@ -98,7 +98,7 @@ def answer_question(question: str, top_k: int) -> tuple[str, list[str]]:
             return answer, contexts
         except Exception as err:
             last_err = err
-            wait = 10 * (attempt + 1)
+            wait = 30 * (attempt + 1)
             print(f"    pipeline error (attempt {attempt + 1}/3): {err} — retry in {wait}s")
             time.sleep(wait)
     raise RuntimeError(f"pipeline failed after 3 attempts: {last_err}")
@@ -215,7 +215,8 @@ def build_report(
         "run": {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "generation_model": settings.gemma_model,
-            "judge_model": settings.ragas_judge_model,
+            "judge_provider": settings.judge_provider,
+            "judge_model": ragas_eval.judge_model(),
             "embed_model": settings.embedding_model,
             "ragas_version": ragas_eval.RAGAS_VERSION,
             "top_k": top_k,
