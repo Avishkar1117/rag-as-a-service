@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from rag_service.core.generation import GenerationResult, generate
@@ -70,3 +71,41 @@ def test_multiple_nodes_all_cited():
         result = generate("q?", nodes)
 
     assert result.citations == ["d1", "d2"]
+
+
+def test_generate_retries_on_transient_500():
+    """A single Gemini 500 should not surface to the caller — with_retry absorbs it."""
+    mock_client = MagicMock()
+    mock_resp = MagicMock(text="recovered")
+    mock_resp.usage_metadata.prompt_token_count = 10
+    mock_resp.usage_metadata.candidates_token_count = 2
+
+    calls = {"n": 0}
+
+    def _flaky(model: str, contents: str) -> MagicMock:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("500 INTERNAL")
+        return mock_resp
+
+    mock_client.models.generate_content.side_effect = _flaky
+
+    with patch("rag_service.core.generation.genai.Client", return_value=mock_client), \
+         patch("rag_service.retry.time.sleep"):
+        result = generate("q?", _nodes(["ctx"]))
+
+    assert result.answer == "recovered"
+    assert calls["n"] == 2  # one failure, one success
+
+
+def test_generate_does_not_retry_real_errors():
+    """A genuine bug (e.g. ValueError) must bubble up unchanged — not be retried."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = ValueError("bad prompt")
+
+    with patch("rag_service.core.generation.genai.Client", return_value=mock_client), \
+         patch("rag_service.retry.time.sleep") as mock_sleep:
+        with pytest.raises(ValueError, match="bad prompt"):
+            generate("q?", _nodes(["ctx"]))
+
+    mock_sleep.assert_not_called()  # non-retryable: no backoff, no sleep
