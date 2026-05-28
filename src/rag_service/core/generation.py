@@ -6,6 +6,7 @@ from google import genai
 from llama_index.core.schema import NodeWithScore
 
 from rag_service.config import settings
+from rag_service.retry import with_retry
 
 _PROMPT = """\
 Answer using ONLY the context below. \
@@ -31,14 +32,23 @@ class GenerationResult:
 
 
 def generate(question: str, nodes: list[NodeWithScore]) -> GenerationResult:
-    """Call Gemma with retrieved context. Returns answer, citations, and token usage."""
+    """Call Gemma with retrieved context. Returns answer, citations, and token usage.
+
+    The Gemini API call is wrapped in ``with_retry`` so transient 500/503s and
+    free-tier 429 rate limits don't kill a user-facing /query (or an eval
+    question) on the first hiccup. The embedding cache uses the same helper;
+    this closes the matching gap on the generation path.
+    """
     context = "\n\n".join(node.node.get_content() for node in nodes)
     citations = [node.node.metadata.get("document_id", "") for node in nodes]
 
     client = genai.Client(api_key=settings.gemini_api_key)
-    response = client.models.generate_content(
-        model=settings.gemma_model,
-        contents=_PROMPT.format(context=context, question=question),
+    response = with_retry(
+        lambda: client.models.generate_content(
+            model=settings.gemma_model,
+            contents=_PROMPT.format(context=context, question=question),
+        ),
+        what="gemma generation",
     )
 
     # usage_metadata is absent on some error/streamed responses; default to 0.
