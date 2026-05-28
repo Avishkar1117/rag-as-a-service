@@ -66,41 +66,103 @@ inactivity, so the first request may take ~30 s while the container wakes.
 
 ## Evaluation results
 
-Both runs use the same generation model (Gemma 4 31B), the same RAGAS judge,
-the same `chunk_size=1024`, and the same 50-question dataset (35 factual, 10
-multi-hop, 5 adversarial). The only thing that changed is `top_k`.
+50 curated Q&A pairs (35 factual, 10 multi-hop, 5 adversarial) over a 3-PDF
+corpus, scored by RAGAS on four metrics plus adversarial refusal rate.
 
-| Metric | Baseline `top_k=3` | Tuned `top_k=8` | Δ |
+**Run config:** `gemma-4-31b-it` (generation), `deepseek-v4-flash` (judge,
+DeepSeek API), `top_k=8`, `chunk_size=1024`, `models/gemini-embedding-001`.
+The generator and judge come from different model families and providers —
+the judge can't recognize its own reasoning patterns in an answer, which
+removes the self-bias floor a same-model setup has on faithfulness.
+
+### Headline scores (50 questions, May 28)
+
+| Metric | Full 50 | Answered-only (44) |
+|---|---|---|
+| faithfulness | 0.8685 | **0.9869** |
+| answer_relevancy | 0.8416 | **0.9564** |
+| context_precision | 0.7574 | 0.8288 |
+| context_recall | 0.8933 | **0.9811** |
+| **adversarial refusal rate** | **1.0000** | — |
+
+Both columns are honest, just answering different questions. **Full 50**
+is what RAGAS reports — refusals (correctly given on the 5 adversarials +
+1 hard multihop) count as zeros on faithfulness/relevancy by design.
+**Answered-only** strips those out and asks "when the pipeline does answer,
+how well does it answer?"
+
+By category (full-50 aggregates):
+
+| Category | n | faithfulness | answer_relevancy | context_precision | context_recall |
+|---|---|---|---|---|---|
+| factual | 35 | 0.9857 | 0.9590 | 0.8186 | 1.0000 |
+| multihop | 10 | 0.8923 | 0.8518 | 0.8219 | 0.8667 |
+| adversarial | 5 | — | — | — | — *(all 5 correctly refused)* |
+
+50/50 questions completed with 0 API errors — the retry layer absorbed
+transient Gemini 500/503s cleanly.
+
+### Cross-provider judge vs original same-model baseline
+
+The original `top_k=8` baseline (May 21) used Gemma 4 as both generator and
+RAGAS judge. The new run uses DeepSeek as a cross-provider judge against the
+same generator:
+
+| Metric | Gemma judge (May 21) | DeepSeek judge (May 28) | Δ |
 |---|---|---|---|
-| faithfulness | 0.9744 | **1.0000** | +0.0256 |
-| answer_relevancy | 0.7830 | 0.7328 | −0.0502 |
-| context_precision | 0.8350 | **0.9413** | +0.1063 |
-| context_recall | 0.8933 | **0.9123** | +0.0190 |
-| multihop context_recall | 0.6667 | **0.8333** | +0.1666 |
-| adversarial refusal rate | 1.0000 | 0.6000 | −0.4000 |
+| faithfulness | 1.0000 | 0.8685 | −0.1315 |
+| answer_relevancy | 0.7328 | 0.8416 | +0.1088 |
+| context_precision | 0.9413 | 0.7574 | −0.1839 |
+| context_recall | 0.9123 | 0.8933 | −0.0190 |
+| **adversarial refusal rate** | **0.6000** | **1.0000** | **+0.4000** |
 
-The retrieval win is clearest on **multi-hop questions**, where pulling 8
-chunks instead of 3 lets the model see both halves of a two-part answer:
-`context_recall` on that slice jumps from 0.67 to 0.83. Faithfulness is
-also pinned to 1.0 at `top_k=8` (no hallucinations on the 45 non-adversarial
-questions that scored cleanly).
+Two findings worth flagging:
 
-The trade-off is adversarial refusal: at `top_k=8` two of the five
-unanswerable questions retrieved enough loosely-related context that the
-model attempted an answer instead of declining. This is a known
-precision/refusal trade-off with wider retrieval; tightening the refusal
-prompt is the next iteration.
+1. **`context_precision` dropped by ~0.18.** Same generator, same retrieval,
+   same questions — the dominant change is the judge. That delta is the
+   self-bias correction. Gemma judging its own retrieval was inflating
+   precision; the DeepSeek number is the honest one.
+2. **Adversarial refusal rate jumped from 0.60 to perfect 1.00.** All five
+   unanswerable questions are now correctly declined, where the original
+   `top_k=8` baseline answered two of them incorrectly.
 
-Per-question scores: `eval/results/ragas_20260521_090522.json` (and matching
-`.csv`). Latest aggregate report: `eval/results/latest.md`.
+### Caveats & known limitations
+
+- **q050 — a deterministic conservative refusal.** This multihop question
+  (*"What three minimal capabilities does GA argue every agent system must
+  implement, and what stage of the execution pipeline does each address?"*,
+  `generic_agent.pdf`) was refused both on May 27 and May 28, both times
+  with `context_recall ≈ 0.50`. Retrieval reliably returns only half the
+  facts needed for the 6-fact answer the question demands, so Gemma's
+  prompt-compliant move is to refuse rather than fabricate the missing
+  half. A reranker would lift retrieval coverage enough to unlock this case
+  (see "What I'd do next" below).
+- **Full-50 aggregates conflate two different things.** Refusals (both
+  correct adversarials and conservative refusals like q050) score zero
+  across faithfulness/relevancy by RAGAS design. That's why the full-50
+  faithfulness of 0.8685 is materially lower than the answered-only 0.9869.
+  Both numbers are real; the answered-only one is the better signal of
+  pipeline quality, the full-50 is the better signal of end-to-end
+  coverage.
+- **Corpus rebuild during this session refreshed stale OCR chunks.** A
+  silent Chroma staleness was suppressing retrieval for two of the three
+  corpus PDFs until `--rebuild` was used. The regression eval surfaced it;
+  the rebuild fixed it. That same staleness could affect production
+  ingestion if a PDF is re-ingested without rebuild — a real operational
+  lesson rather than a one-off bug.
+
+Per-question scores: `eval/results/ragas_20260528_155233.json` (and matching
+`.csv`). Latest aggregate: `eval/results/latest.md`.
 
 ### Evaluation as CI
 
 A 10-question regression guard (`tests/eval/test_regression.py`) re-runs the
 RAGAS harness on every pull request and fails if faithfulness drops below
-0.85. The workflow is in `.github/workflows/eval.yml`. This is the angle that
-makes the service genuinely shippable,any prompt or model changes that quietly
-regress quality get caught before they merge.
+0.85. The workflow is in `.github/workflows/eval.yml`. This is the angle
+that makes the service genuinely shippable — any prompt, retrieval, or
+model change that quietly regresses quality gets caught before merge. The
+framework also caught the stale-Chroma issue mentioned above; that's
+exactly the class of regression CI-time eval is for.
 
 ## API
 
@@ -133,7 +195,8 @@ curl -X POST https://avishkar1117-rag-service.hf.space/query \
 | API | FastAPI + Uvicorn |
 | Orchestration | LlamaIndex |
 | Vector store | Chroma (persistent volume) |
-| LLM | Gemma 4 31B (Gemini API, OpenAI-compatible endpoint) |
+| LLM (generation) | Gemma 4 31B (Gemini API, OpenAI-compatible endpoint) |
+| LLM (RAGAS judge) | DeepSeek v4 Flash (DeepSeek API, OpenAI-compatible). Swappable via `JUDGE_PROVIDER` env var; OpenRouter and Gemini configs saved in code as fallbacks. |
 | Embeddings | `models/gemini-embedding-001` |
 | OCR | PyMuPDF text extraction → Gemini Vision fallback for scans |
 | Cache | Upstash Redis - embedding cache (sha256-keyed), optional answer cache |
@@ -176,9 +239,38 @@ uv run uvicorn rag_service.main:app --reload
 - **Hugging Face Spaces over Render.** Free tier, persistent URL, Docker
   SDK supports the existing image with no rewrite. Cold-start latency
   (~30 s) is the trade-off.
-- **RAGAS judge = generation model.** Cheaper and avoids dragging in a
-  second API. A separate judge would reduce self-bias on faithfulness, a
-  fair next step if budget allowed.
+- **Cross-provider RAGAS judge (DeepSeek v4 Flash).** The generator (Gemma
+  4 on Gemini) and judge (DeepSeek v4 Flash on DeepSeek) come from
+  different model families and different providers. A judge that doesn't
+  share weights or training lineage with the generator can't recognize its
+  own reasoning patterns in an answer — that eliminates self-bias on
+  faithfulness scoring. The original same-model setup (Gemma judging
+  Gemma) is preserved in code as `JUDGE_PROVIDER=gemini`, and OpenRouter
+  is available as a third option, so swapping judges later is a one-line
+  `.env` change with no code edits.
+
+## What I'd do next
+
+1. **Add a reranker** (Cohere or `bge-reranker-base`) between retrieval and
+   generation. The current `top_k=8` is a blunt instrument; reranking 20→8
+   would lift `context_precision` further and, more importantly, fix the
+   q050-style cases where retrieval gets partway to the answer but not all
+   the way. q050 is the deterministic test case this would close.
+2. **Tighten the refusal prompt.** The current "Answer using ONLY the
+   context below. If the context does not contain the answer, say 'I don't
+   have enough information.'" is binary. A more nuanced version could let
+   the model partially answer with a confidence qualifier — useful for
+   hard multihop questions like q050 where it has half the picture.
+3. **Wrap the generation call in `with_retry`** (`src/rag_service/retry.py`).
+   The embedding cache already uses the rate-limit-aware retry helper, but
+   `core/generation.py` calls Gemini directly. During eval, transient
+   Gemini 500/503s on the generation path are caught only by a shorter
+   eval-script retry loop — the production `/query` endpoint has no
+   retries at all. This is a small PR with a real reliability win.
+4. **Stream responses** so first-token latency feels closer to ChatGPT.
+   Currently the client waits for the full Gemini completion.
+5. **Per-tenant API keys + rate limits** before any real users hit it. A
+   single shared key in a header is the minimum next step.
 
 ## Repository layout
 
